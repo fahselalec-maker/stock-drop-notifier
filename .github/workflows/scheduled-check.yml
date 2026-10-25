@@ -1,16 +1,16 @@
-name: Daily ETF report
+name: ETF intraday dip watch
 
 on:
   schedule:
-    # Every day at 22:00 UTC (00:00 CEST / 23:00 CET).
-    - cron: '0 22 * * *'
+    # Every 30 minutes on weekdays. Python checks US trading hours.
+    - cron: '7,37 13-22 * * 1-5'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: daily-etf-report
+  group: etf-intraday-watch
   cancel-in-progress: false
 
 jobs:
@@ -19,16 +19,27 @@ jobs:
     environment: Prod
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Determine New York trading date
+        id: date
+        run: echo "today=$(TZ=America/New_York date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Restore today's sent-alert marker
+        id: prior
+        uses: actions/cache/restore@v4
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Evaluate ETF data (no separate dip notification)
-        env:
-          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-        run: go run ./cmd/notifier check --verbose | tee etf-check.log
-      - name: Send one daily Telegram report
+          path: .etf-notified
+          key: etf-dip-sent-${{ steps.date.outputs.today }}
+      - name: Look for dip with 15-minute rebound
+        id: scan
+        if: steps.prior.outputs.cache-hit != 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python3 scripts/daily_report.py < etf-check.log
+        run: |
+          python3 scripts/intraday_dip.py
+          if [ -f .etf-notified ]; then echo 'sent=true' >> "$GITHUB_OUTPUT"; fi
+      - name: Record sent notification for the day
+        if: steps.scan.outputs.sent == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .etf-notified
+          key: etf-dip-sent-${{ steps.date.outputs.today }}
