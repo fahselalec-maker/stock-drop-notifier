@@ -18,7 +18,7 @@ def fetch(symbol, interval, window):
 
 def main():
     now = datetime.now(ZoneInfo("America/New_York"))
-    if now.weekday() > 4 or not (9 <= now.hour <= 16):
+    if now.weekday() > 4 or not ((now.hour == 9 and now.minute >= 30) or 10 <= now.hour < 16):
         print("Outside US market hours; no alerts.")
         return
     date = now.strftime("%Y-%m-%d")
